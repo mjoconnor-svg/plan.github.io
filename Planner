@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vending Machine Planogram</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            color: #333;
+        }
+        .drag-handle {
+            cursor: grab;
+        }
+        .drag-handle:active {
+            cursor: grabbing;
+        }
+        .tray-cell {
+            border: 2px dashed #d1d5db;
+            transition: background-color 0.2s;
+        }
+        .tray-cell.drag-over {
+            background-color: #e5e7eb;
+        }
+        .product-image {
+            width: 50px;
+            height: 50px;
+            object-fit: contain;
+            background-color: #f9fafb;
+            border-radius: 0.5rem;
+        }
+        .product-item-placed .product-image {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        .product-item {
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="p-6">
+
+<div id="app" class="max-w-7xl mx-auto bg-white rounded-2xl shadow-lg overflow-hidden">
+    <!-- Header -->
+    <header class="bg-gray-800 text-white p-6 rounded-t-2xl">
+        <h1 class="text-3xl font-bold">Vending Machine Planogram</h1>
+        <p class="mt-1 text-gray-300">Drag & drop products to plan your machine layout.</p>
+    </header>
+
+    <main class="p-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- Inventory Panel -->
+        <div id="inventory-panel" class="lg:col-span-1 bg-gray-50 p-6 rounded-xl shadow-inner">
+            <h2 class="text-2xl font-semibold mb-4 text-gray-800">Product Inventory</h2>
+            <div id="product-list" class="space-y-4">
+                <!-- Product items will be dynamically added here -->
+            </div>
+            <button id="reset-button" class="w-full mt-6 bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg shadow-md transition-colors">
+                Reset Planogram
+            </button>
+        </div>
+
+        <!-- Vending Machine Planogram -->
+        <div id="planogram-panel" class="lg:col-span-2 bg-gray-100 p-6 rounded-xl shadow-inner">
+            <h2 class="text-2xl font-semibold mb-4 text-gray-800">Machine Layout</h2>
+            <div id="planogram-grid" class="grid grid-cols-9 gap-4">
+                <!-- Vending machine cells will be dynamically added here -->
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal for adding products -->
+    <div id="modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-xl p-6 shadow-xl w-full max-w-md">
+            <h3 class="text-xl font-bold mb-4">Add New Product</h3>
+            <div class="space-y-4">
+                <div>
+                    <label for="product-name" class="block text-sm font-medium text-gray-700">Product Name</label>
+                    <input type="text" id="product-name" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label for="product-image" class="block text-sm font-medium text-gray-700">Image URL</label>
+                    <input type="text" id="product-image" placeholder="https://example.com/image.png" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                </div>
+            </div>
+            <div class="mt-6 flex justify-end space-x-2">
+                <button id="cancel-modal" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg transition-colors">
+                    Cancel
+                </button>
+                <button id="add-product" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+                    Add Product
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const productList = document.getElementById('product-list');
+        const planogramGrid = document.getElementById('planogram-grid');
+        const resetButton = document.getElementById('reset-button');
+        const modal = document.getElementById('modal');
+        const addProductButton = document.getElementById('add-product');
+        const cancelModalButton = document.getElementById('cancel-modal');
+        const productNameInput = document.getElementById('product-name');
+        const productImageInput = document.getElementById('product-image');
+        
+        let draggedItem = null;
+
+        // --- Data & Initialization ---
+        let inventory = JSON.parse(localStorage.getItem('vendingInventory')) || [
+            { id: '1', name: 'Snickers', image: 'https://placehold.co/100x100/885834/white?text=Snickers' },
+            { id: '2', name: 'Coke', image: 'https://placehold.co/100x100/D4213D/white?text=Coke' },
+            { id: '3', name: 'Lays', image: 'https://placehold.co/100x100/F0E64B/black?text=Lays' },
+            { id: '4', name: 'Water', image: 'https://placehold.co/100x100/C8E6F5/black?text=Water' },
+            { id: '5', name: 'Oreos', image: 'https://placehold.co/100x100/3A2E2F/white?text=Oreos' }
+        ];
+
+        let planogram = JSON.parse(localStorage.getItem('vendingPlanogram')) || Array(54).fill(null);
+
+        // --- UI Rendering ---
+        const renderInventory = () => {
+            productList.innerHTML = '';
+            inventory.forEach(product => {
+                const productEl = document.createElement('div');
+                productEl.classList.add('product-item', 'p-4', 'rounded-lg', 'shadow-md', 'flex', 'items-center', 'space-x-4', 'drag-handle', 'transition-transform', 'hover:scale-105');
+                productEl.draggable = true;
+                productEl.setAttribute('data-id', product.id);
+                
+                productEl.innerHTML = `
+                    <img src="${product.image}" alt="${product.name}" class="product-image">
+                    <div class="flex-grow font-semibold text-lg text-gray-800">${product.name}</div>
+                    <button class="remove-btn bg-gray-200 hover:bg-gray-300 p-1 rounded-full transition-colors" data-id="${product.id}">
+                        <svg class="w-5 h-5 text-gray-800" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    </button>
+                `;
+                productList.appendChild(productEl);
+            });
+            
+            const addProductBtn = document.createElement('button');
+            addProductBtn.id = 'add-product-btn';
+            addProductBtn.classList.add('w-full', 'mt-6', 'bg-green-500', 'hover:bg-green-600', 'text-white', 'font-bold', 'py-3', 'px-4', 'rounded-lg', 'shadow-md', 'transition-colors');
+            addProductBtn.textContent = '+ Add New Product';
+            productList.appendChild(addProductBtn);
+        };
+
+        const renderPlanogram = () => {
+            planogramGrid.innerHTML = '';
+            for (let i = 0; i < 54; i++) {
+                const cell = document.createElement('div');
+                cell.classList.add('tray-cell', 'h-24', 'rounded-lg', 'relative');
+                cell.setAttribute('data-index', i);
+
+                const product = planogram[i];
+                if (product) {
+                    const productEl = document.createElement('div');
+                    productEl.classList.add('product-item-placed', 'absolute', 'inset-0', 'p-1', 'flex', 'flex-col', 'items-center', 'justify-center', 'text-white', 'font-semibold', 'text-center', 'rounded-lg', 'shadow-md');
+                    
+                    productEl.innerHTML = `
+                        <img src="${product.image}" alt="${product.name}" class="product-image">
+                        <span class="text-sm mt-1 text-gray-800 text-shadow-sm font-normal">${product.name}</span>
+                    `;
+                    productEl.draggable = true;
+                    productEl.setAttribute('data-id', product.id);
+                    productEl.setAttribute('data-planogram-index', i);
+                    cell.appendChild(productEl);
+                }
+
+                planogramGrid.appendChild(cell);
+            }
+        };
+        
+        const saveToLocalStorage = () => {
+            localStorage.setItem('vendingInventory', JSON.stringify(inventory));
+            localStorage.setItem('vendingPlanogram', JSON.stringify(planogram));
+        };
+
+        const handleDragStart = (e) => {
+            draggedItem = e.target;
+            e.dataTransfer.effectAllowed = 'move';
+            // Use a slight delay to ensure the element's style can be updated
+            setTimeout(() => {
+                draggedItem.style.opacity = '0.5';
+            }, 0);
+        };
+
+        const handleDragEnd = (e) => {
+            e.target.style.opacity = '1';
+            draggedItem = null;
+        };
+
+        const handleDragOver = (e) => {
+            e.preventDefault();
+            const targetCell = e.target.closest('.tray-cell');
+            if (targetCell) {
+                targetCell.classList.add('drag-over');
+                e.dataTransfer.dropEffect = 'move';
+            }
+        };
+
+        const handleDragLeave = (e) => {
+            const targetCell = e.target.closest('.tray-cell');
+            if (targetCell) {
+                targetCell.classList.remove('drag-over');
+            }
+        };
+
+        const handleDrop = (e) => {
+            e.preventDefault();
+            const targetCell = e.target.closest('.tray-cell');
+            if (!targetCell) {
+                return;
+            }
+            targetCell.classList.remove('drag-over');
+            
+            if (draggedItem && draggedItem.classList.contains('product-item')) {
+                // Dragging from inventory to planogram
+                const productId = draggedItem.getAttribute('data-id');
+                const planogramIndex = targetCell.getAttribute('data-index');
+                const product = inventory.find(p => p.id === productId);
+
+                if (product && !planogram[planogramIndex]) {
+                    planogram[planogramIndex] = product;
+                    renderPlanogram();
+                    saveToLocalStorage();
+                } else if (planogram[planogramIndex]) {
+                    // Show a message if cell is occupied
+                    // Using a simple alert for now
+                    alert("This slot is already occupied. Please clear it first.");
+                }
+            } else if (draggedItem && draggedItem.classList.contains('product-item-placed')) {
+                // Dragging from one planogram cell to another
+                const oldIndex = draggedItem.getAttribute('data-planogram-index');
+                const newIndex = targetCell.getAttribute('data-index');
+
+                if (oldIndex !== newIndex && !planogram[newIndex]) {
+                    planogram[newIndex] = planogram[oldIndex];
+                    planogram[oldIndex] = null;
+                    renderPlanogram();
+                    saveToLocalStorage();
+                } else if (oldIndex === newIndex) {
+                    // Do nothing
+                } else if (planogram[newIndex]) {
+                    alert("This slot is already occupied. Please clear it first.");
+                }
+            }
+        };
+
+        // --- Event Listeners ---
+        document.addEventListener('dragstart', handleDragStart);
+        document.addEventListener('dragend', handleDragEnd);
+
+        planogramGrid.addEventListener('dragover', handleDragOver);
+        planogramGrid.addEventListener('dragleave', handleDragLeave);
+        planogramGrid.addEventListener('drop', handleDrop);
+
+        planogramGrid.addEventListener('dblclick', (e) => {
+            const cell = e.target.closest('.tray-cell');
+            if (cell) {
+                const index = cell.getAttribute('data-index');
+                planogram[index] = null;
+                renderPlanogram();
+                saveToLocalStorage();
+            }
+        });
+
+        // Event delegation for remove button
+        productList.addEventListener('click', (e) => {
+            if (e.target.closest('.remove-btn')) {
+                const productId = e.target.closest('.remove-btn').getAttribute('data-id');
+                // Remove product from inventory
+                inventory = inventory.filter(p => p.id !== productId);
+                // Remove all instances of the product from the planogram
+                planogram = planogram.map(p => (p && p.id === productId) ? null : p);
+                renderInventory();
+                renderPlanogram();
+                saveToLocalStorage();
+            } else if (e.target.id === 'add-product-btn') {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+            }
+        });
+        
+        resetButton.addEventListener('click', () => {
+            if (confirm("Are you sure you want to reset the entire planogram? This cannot be undone.")) {
+                planogram = Array(54).fill(null);
+                renderPlanogram();
+                saveToLocalStorage();
+            }
+        });
+
+        cancelModalButton.addEventListener('click', () => {
+            modal.classList.remove('flex');
+            modal.classList.add('hidden');
+        });
+
+        addProductButton.addEventListener('click', () => {
+            const name = productNameInput.value.trim();
+            const image = productImageInput.value.trim();
+            if (name && image) {
+                const newProduct = {
+                    id: crypto.randomUUID(),
+                    name: name,
+                    image: image
+                };
+                inventory.push(newProduct);
+                renderInventory();
+                saveToLocalStorage();
+                productNameInput.value = '';
+                productImageInput.value = '';
+                modal.classList.remove('flex');
+                modal.classList.add('hidden');
+            } else {
+                alert("Please enter both a product name and an image URL.");
+            }
+        });
+
+        // Initial render
+        renderInventory();
+        renderPlanogram();
+    });
+</script>
+
+</body>
+</html>
